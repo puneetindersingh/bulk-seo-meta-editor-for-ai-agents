@@ -1,0 +1,21 @@
+{
+  "name": "seo-meta-bridge-mcp",
+  "version": "1.2.0",
+  "description": "MCP server for SEO Meta Bridge for AI — lets Claude Code / Claude Desktop read and update Yoast or Rank Math SEO meta on WordPress sites.",
+  "type": "module",
+  "bin": {
+    "seo-meta-bridge-mcp": "./index.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
