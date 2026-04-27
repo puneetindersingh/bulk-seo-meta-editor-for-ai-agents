@@ -1,5 +1,5 @@
 === SEO Meta Bridge for AI ===
-Contributors: mojodojoio
+Contributors: puneetindersingh
 Tags: ai, seo, rest-api, mcp, headless
 Requires at least: 5.6
 Tested up to: 6.6
