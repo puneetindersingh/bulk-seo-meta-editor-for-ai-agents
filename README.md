@@ -37,13 +37,26 @@ composer require mojodojo/seo-meta-bridge-for-ai
 
 ## Authentication
 
-Uses standard WordPress Application Passwords. **HTTPS required.**
+Uses standard WordPress Application Passwords. **HTTPS required in production.**
 
 1. WP admin → **Users → Your Profile → Application Passwords**
 2. Name it (e.g. `Claude Code`) → **Add New Application Password**
 3. Copy the generated password (24 chars, shown once)
 
 Use it as Basic Auth: `username:application password`
+
+### Local development over HTTP
+
+WordPress disables Application Passwords on non-HTTPS sites by default, so you'll get **401 Unauthorized** on a local `http://127.0.0.1` install. Drop this mu-plugin into `wp-content/mu-plugins/enable-app-passwords-local.php` for local testing **only**:
+
+```php
+<?php
+// LOCAL DEV ONLY — never ship this to production
+add_filter('wp_is_application_passwords_available', '__return_true');
+add_filter('wp_is_application_passwords_available_for_user', '__return_true');
+```
+
+Also note: PHP's built-in dev server (`php -S`) does not handle WordPress URL rewriting, so `/wp-json/...` URLs return the front-page HTML on a local install. Use the `?rest_route=/...` form instead — it works on every WP install regardless of permalink structure or web server. The bundled MCP server already uses that form.
 
 ## REST endpoints
 
@@ -88,6 +101,10 @@ curl -u 'user:app pass' -X POST https://site.com/wp-json/seo-meta-bridge/v1/bulk
 ```
 
 Response: `{ "count": N, "results": [{ "id", "status", "errors": [...] }] }`
+
+**Partial-success semantics:** within a single item, valid meta keys are applied even when other keys in the same payload are rejected. The item's `status` is `error` if any key was rejected; the `errors` array names which ones. Use it to detect typos without re-sending the whole batch. Example: a payload with `_yoast_wpseo_title` (valid) and `_arbitrary_key` (rejected) updates the title and reports `errors: ["unknown_or_disallowed_key:_arbitrary_key"]`.
+
+**Allowlist:** only meta keys belonging to the active SEO plugin (Yoast or Rank Math) are accepted. Arbitrary postmeta writes are rejected — this endpoint cannot be used as a generic postmeta editor.
 
 ### `GET /wp-json/seo-meta-bridge/v1/export`
 
