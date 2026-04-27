@@ -1,0 +1,181 @@
+# SEO Meta Bridge for AI
+
+A WordPress plugin that lets AI agents (Claude, GPT, Perplexity) and scripts read and update **Yoast SEO** or **Rank Math** meta fields via the WordPress REST API. Auto-detects which SEO plugin is active.
+
+Includes:
+
+- REST endpoints for individual and **bulk updates** (up to 100 posts/call)
+- **CSV import/export** for spreadsheet-based editing
+- A bundled **MCP server** so Claude Code or Claude Desktop can drive it with one-command setup
+
+## What problem does it solve?
+
+WordPress doesn't expose Yoast or Rank Math meta fields via the REST API by default. To edit a meta title programmatically you'd normally need WP-CLI access, a custom plugin, or the SEO plugin's premium tier. This plugin adds a clean, authenticated REST surface that:
+
+- Works with whichever SEO plugin is already installed (or both)
+- Validates per-post permissions (so a Contributor can't edit other authors' posts)
+- Sanitizes URL fields automatically
+- Returns predictable, plugin-neutral field aliases (`title`, `description`, `focus_kw`, ...)
+
+## Installation
+
+### Option 1 — WordPress admin (zip upload)
+
+1. Download `seo-meta-bridge-for-ai.zip` from [Releases](https://github.com/puneetindersingh/seo-meta-bridge-for-ai/releases)
+2. WP admin → **Plugins → Add New → Upload Plugin**
+3. Activate
+
+### Option 2 — must-use plugin (auto-active, recommended for agencies)
+
+Drop `seo-meta-bridge-for-ai.php` into `wp-content/mu-plugins/`. No activation required, can't be turned off from the admin.
+
+### Option 3 — Composer
+
+```
+composer require mojodojo/seo-meta-bridge-for-ai
+```
+
+## Authentication
+
+Uses standard WordPress Application Passwords. **HTTPS required.**
+
+1. WP admin → **Users → Your Profile → Application Passwords**
+2. Name it (e.g. `Claude Code`) → **Add New Application Password**
+3. Copy the generated password (24 chars, shown once)
+
+Use it as Basic Auth: `username:application password`
+
+## REST endpoints
+
+All endpoints require the user to have `edit_posts` capability. Per-post writes additionally check `edit_post` against the target post.
+
+### `GET /wp-json/seo-meta-bridge/v1/status`
+
+Detect active SEO plugin and list available field aliases.
+
+```bash
+curl -u 'user:app pass' https://site.com/wp-json/seo-meta-bridge/v1/status
+```
+
+### `POST /wp-json/wp/v2/posts/{id}` (standard WP route)
+
+Update meta on a single post. The plugin registers Yoast/Rank Math meta keys with the standard route, so vanilla WP REST works:
+
+```bash
+curl -u 'user:app pass' -X POST https://site.com/wp-json/wp/v2/posts/123 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "meta": {
+      "_yoast_wpseo_title": "New Title",
+      "_yoast_wpseo_metadesc": "New meta description under 150 chars."
+    }
+  }'
+```
+
+### `POST /wp-json/seo-meta-bridge/v1/bulk`
+
+Update up to 100 posts in one call.
+
+```bash
+curl -u 'user:app pass' -X POST https://site.com/wp-json/seo-meta-bridge/v1/bulk \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "items": [
+      { "id": 123, "meta": { "_yoast_wpseo_title": "Title A" } },
+      { "id": 124, "meta": { "_yoast_wpseo_title": "Title B" } }
+    ]
+  }'
+```
+
+Response: `{ "count": N, "results": [{ "id", "status", "errors": [...] }] }`
+
+### `GET /wp-json/seo-meta-bridge/v1/export`
+
+Stream all posts' SEO meta as CSV (header row matches the `/import` shape).
+
+```
+GET /wp-json/seo-meta-bridge/v1/export?post_type=post,page&status=publish&limit=500&offset=0
+```
+
+### `POST /wp-json/seo-meta-bridge/v1/import`
+
+Apply updates from CSV (multipart upload with field name `csv`) **or** JSON `{ rows: [...] }`. Round-trips with `/export`.
+
+```bash
+curl -u 'user:app pass' -X POST https://site.com/wp-json/seo-meta-bridge/v1/import \
+  -F 'csv=@updated.csv'
+```
+
+## MCP server (Claude Code / Claude Desktop)
+
+A Node.js MCP server is bundled in `mcp-server/`. Adds these tools to Claude:
+
+- `status` — detect active SEO plugin
+- `get_post_meta` — read SEO meta for one post
+- `set_post_meta` — update one post
+- `bulk_update` — update up to 100 posts
+- `list_posts` — find post IDs by search/post-type
+- `export_csv` — get all SEO meta as CSV
+- `import_csv` — apply CSV updates
+
+### Install (Claude Desktop)
+
+```json
+{
+  "mcpServers": {
+    "seo-meta-bridge": {
+      "command": "npx",
+      "args": ["-y", "seo-meta-bridge-mcp"],
+      "env": {
+        "WP_BASE_URL": "https://your-site.com",
+        "WP_USER": "your-username",
+        "WP_APP_PASS": "xxxx xxxx xxxx xxxx xxxx xxxx"
+      }
+    }
+  }
+}
+```
+
+### Install (Claude Code)
+
+```
+claude mcp add seo-meta-bridge \
+  --env WP_BASE_URL=https://your-site.com \
+  --env WP_USER=your-username \
+  --env WP_APP_PASS='xxxx xxxx xxxx xxxx xxxx xxxx' \
+  -- npx -y seo-meta-bridge-mcp
+```
+
+Then in Claude: *"Pull the SEO meta for post 123 and rewrite the title to be ≤60 chars and meta description ≤150 chars, focusing on the keyword 'industrial electric motors'."*
+
+## Field reference
+
+| Alias | Yoast meta key | Rank Math meta key |
+|---|---|---|
+| `title` | `_yoast_wpseo_title` | `rank_math_title` |
+| `description` | `_yoast_wpseo_metadesc` | `rank_math_description` |
+| `focus_kw` | `_yoast_wpseo_focuskw` | `rank_math_focus_keyword` |
+| `canonical` | `_yoast_wpseo_canonical` | `rank_math_canonical_url` |
+| `noindex` | `_yoast_wpseo_meta-robots-noindex` (0/1/2) | inside `rank_math_robots[]` |
+| `og_title` | `_yoast_wpseo_opengraph-title` | `rank_math_facebook_title` |
+| `og_desc` | `_yoast_wpseo_opengraph-description` | `rank_math_facebook_description` |
+| `og_image` | `_yoast_wpseo_opengraph-image` | `rank_math_facebook_image` |
+| `tw_title` | `_yoast_wpseo_twitter-title` | `rank_math_twitter_title` |
+| `tw_desc` | `_yoast_wpseo_twitter-description` | `rank_math_twitter_description` |
+| `tw_image` | `_yoast_wpseo_twitter-image` | `rank_math_twitter_image` |
+
+## Security model
+
+- Application Passwords transmit as Basic Auth — **HTTPS required**.
+- Per-post `edit_post` capability check on every write (not just `edit_posts`).
+- Meta keys are allowlisted to the active plugin's known fields — arbitrary postmeta writes are rejected.
+- URL-shaped fields are run through `esc_url_raw` before save.
+- No new admin UI; nothing to misconfigure.
+
+## License
+
+GPL-2.0-or-later.
+
+## Author
+
+[Mojo Dojo](https://mojodojo.io) — SEO agency tooling.
