@@ -3,7 +3,7 @@
  * Plugin Name: SEO Meta Bridge for AI
  * Plugin URI:  https://github.com/puneetindersingh/seo-meta-bridge-for-ai
  * Description: Lets AI agents (Claude, GPT, Perplexity) and scripts read and update Yoast SEO or Rank Math meta fields via the WordPress REST API. Auto-detects the active SEO plugin. Includes bulk-update, CSV import/export, and a bundled MCP server for one-command Claude Code / Claude Desktop integration.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Mojo Dojo
  * Author URI: https://mojodojo.io
  * License: GPL-2.0-or-later
@@ -197,6 +197,25 @@ if (!function_exists('seo_meta_bridge_active_keys')) {
     }
 }
 
+if (!function_exists('seo_meta_bridge_csv_line')) {
+    /**
+     * Serialize one CSV row. Handles quoting/escaping the same way fputcsv
+     * does, but as a pure string-builder so we don't have to fopen() a stream
+     * (which Plugin Check flags as a filesystem operation).
+     */
+    function seo_meta_bridge_csv_line($cells) {
+        $out = [];
+        foreach ($cells as $cell) {
+            $cell = (string) $cell;
+            if (preg_match('/[",\r\n]/', $cell)) {
+                $cell = '"' . str_replace('"', '""', $cell) . '"';
+            }
+            $out[] = $cell;
+        }
+        return implode(',', $out) . "\n";
+    }
+}
+
 if (!function_exists('seo_meta_bridge_apply_update')) {
     /**
      * Apply a meta update to one post. Returns ['ok' => bool, 'errors' => [...]].
@@ -251,7 +270,7 @@ add_action('rest_api_init', function () {
                 'rankmath' => defined('RANK_MATH_VERSION') || class_exists('RankMath\\Helper'),
                 'active'   => $active['plugin'],
                 'fields'   => $active['keys'],
-                'version'  => '1.2.0',
+                'version'  => '1.2.1',
             ];
         },
     ]);
@@ -329,8 +348,14 @@ add_action('rest_api_init', function () {
                     header('Content-Type: text/csv; charset=utf-8');
                     header('Content-Disposition: attachment; filename="seo-meta-export.csv"');
                 }
-                $out = fopen('php://output', 'w');
-                fputcsv($out, $headers);
+                // Build CSV manually instead of fopen/fputcsv — Plugin Check
+                // flags raw filesystem calls, and php://output is the response
+                // stream so we just emit strings directly. CSV cells are
+                // already CSV-quoted by seo_meta_bridge_csv_line(); HTML-
+                // escaping (esc_html) would corrupt the CSV format, so we
+                // suppress the OutputNotEscaped check on these emit lines.
+                // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- CSV body, cells quoted by helper above.
+                echo seo_meta_bridge_csv_line($headers);
                 foreach ($query->posts as $p) {
                     $row = [$p->ID, get_permalink($p->ID), $p->post_type, $p->post_status, $p->post_title];
                     foreach ($active['keys'] as $alias => $meta_key) {
@@ -338,9 +363,9 @@ add_action('rest_api_init', function () {
                         if (is_array($val)) $val = implode('|', $val);
                         $row[] = $val;
                     }
-                    fputcsv($out, $row);
+                    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- CSV body, cells quoted by helper above.
+                    echo seo_meta_bridge_csv_line($row);
                 }
-                fclose($out);
                 return true;
             });
 
@@ -361,14 +386,29 @@ add_action('rest_api_init', function () {
             // Multipart CSV upload?
             $files = $req->get_file_params();
             if (!empty($files['csv']['tmp_name']) && is_uploaded_file($files['csv']['tmp_name'])) {
-                if (($fh = fopen($files['csv']['tmp_name'], 'r')) !== false) {
-                    $headers = fgetcsv($fh);
-                    if ($headers) {
-                        while (($cells = fgetcsv($fh)) !== false) {
-                            $rows[] = array_combine($headers, $cells);
+                // Use WP_Filesystem rather than raw fopen/fread per WP coding
+                // standards; pass through str_getcsv for line-by-line parsing.
+                if (!function_exists('WP_Filesystem')) {
+                    require_once ABSPATH . 'wp-admin/includes/file.php';
+                }
+                WP_Filesystem();
+                global $wp_filesystem;
+                $csv_text = $wp_filesystem->get_contents($files['csv']['tmp_name']);
+                if ($csv_text !== false) {
+                    $lines = preg_split('/\r\n|\r|\n/', $csv_text);
+                    $hdr = null;
+                    foreach ($lines as $line) {
+                        if ($line === '' || $line === null) continue;
+                        $cells = str_getcsv($line);
+                        if ($hdr === null) {
+                            $hdr = $cells;
+                        } else {
+                            // array_combine errors if counts differ — skip the bad row.
+                            if (count($cells) === count($hdr)) {
+                                $rows[] = array_combine($hdr, $cells);
+                            }
                         }
                     }
-                    fclose($fh);
                 }
             } else {
                 // JSON body

@@ -2,13 +2,13 @@
 Contributors: puneetindersingh
 Tags: ai, seo, rest-api, mcp, headless
 Requires at least: 5.6
-Tested up to: 6.6
-Stable tag: 1.2.0
+Tested up to: 6.9
+Stable tag: 1.2.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Lets AI agents and scripts read and update Yoast SEO or Rank Math meta via the WordPress REST API. Bulk update, CSV import/export, MCP server included.
+Read and update Yoast SEO or Rank Math meta via REST API. For AI agents and scripts. Bulk update, CSV import/export, MCP server.
 
 == Description ==
 
@@ -99,6 +99,11 @@ WordPress disables Application Passwords on non-HTTPS sites by default. For loca
 No. Only meta keys belonging to the active SEO plugin (Yoast or Rank Math) are accepted. Other keys are rejected with `unknown_or_disallowed_key`.
 
 == Changelog ==
+
+= 1.2.1 =
+* Replaced raw fopen/fclose with WP_Filesystem (CSV import) and string-builder CSV (export) per Plugin Check
+* Bumped tested-up-to to 6.9
+* Trimmed short description to <=150 chars
 
 = 1.2.0 =
 * Initial public release
