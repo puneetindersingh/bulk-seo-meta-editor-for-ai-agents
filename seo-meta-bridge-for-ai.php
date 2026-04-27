@@ -317,29 +317,34 @@ add_action('rest_api_init', function () {
                 'no_found_rows'  => true,
             ]);
 
-            $headers = array_merge(['id', 'url', 'post_type', 'status', 'title'], array_keys($active['keys']));
+            // 'post_title' disambiguates the WP post title from the SEO 'title'
+            // alias which maps to _yoast_wpseo_title / rank_math_title.
+            $headers = array_merge(['id', 'url', 'post_type', 'status', 'post_title'], array_keys($active['keys']));
 
-            // Build CSV in-memory then return as text/csv. WP REST hijacks the
-            // response headers, so we set them via a filter for this route.
-            $tmp = fopen('php://temp', 'r+');
-            fputcsv($tmp, $headers);
-            foreach ($query->posts as $p) {
-                $row = [$p->ID, get_permalink($p->ID), $p->post_type, $p->post_status, $p->post_title];
-                foreach ($active['keys'] as $alias => $meta_key) {
-                    $val = get_post_meta($p->ID, $meta_key, true);
-                    if (is_array($val)) $val = implode('|', $val);
-                    $row[] = $val;
+            // WP_REST_Response always JSON-encodes its body, so emit raw CSV
+            // bytes via rest_pre_serve_request and short-circuit serialization.
+            add_filter('rest_pre_serve_request', function ($served) use ($query, $active, $headers) {
+                if ($served) return $served;
+                if (!headers_sent()) {
+                    header('Content-Type: text/csv; charset=utf-8');
+                    header('Content-Disposition: attachment; filename="seo-meta-export.csv"');
                 }
-                fputcsv($tmp, $row);
-            }
-            rewind($tmp);
-            $csv = stream_get_contents($tmp);
-            fclose($tmp);
+                $out = fopen('php://output', 'w');
+                fputcsv($out, $headers);
+                foreach ($query->posts as $p) {
+                    $row = [$p->ID, get_permalink($p->ID), $p->post_type, $p->post_status, $p->post_title];
+                    foreach ($active['keys'] as $alias => $meta_key) {
+                        $val = get_post_meta($p->ID, $meta_key, true);
+                        if (is_array($val)) $val = implode('|', $val);
+                        $row[] = $val;
+                    }
+                    fputcsv($out, $row);
+                }
+                fclose($out);
+                return true;
+            });
 
-            $resp = new WP_REST_Response($csv);
-            $resp->header('Content-Type', 'text/csv; charset=utf-8');
-            $resp->header('Content-Disposition', 'attachment; filename="seo-meta-export.csv"');
-            return $resp;
+            return new WP_REST_Response(null, 200);
         },
     ]);
 
@@ -380,7 +385,7 @@ add_action('rest_api_init', function () {
             $active = seo_meta_bridge_active_keys();
             $alias_to_meta = $active['keys'];
             // Allow either alias names (title, description, focus_kw...) or raw meta keys.
-            $non_meta_cols = ['id', 'url', 'post_type', 'status', 'title']; // 'title' here = post title, NOT meta title
+            $non_meta_cols = ['id', 'url', 'post_type', 'status', 'post_title']; // post_title = WP post title, distinct from SEO 'title' alias
 
             $results = [];
             foreach ($rows as $row) {
