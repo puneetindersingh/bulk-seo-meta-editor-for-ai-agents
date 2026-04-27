@@ -26,8 +26,36 @@ if (!BASE || !USER || !PASS) {
 
 const auth = 'Basic ' + Buffer.from(`${USER}:${PASS}`).toString('base64');
 
+// Build a REST URL using ?rest_route=/X form. This is the universal URL
+// shape — it works on every WP install (pretty permalinks or plain), so
+// we don't need to detect permalink structure or worry about htaccess /
+// nginx rewrites being missing on the target site.
+function restUrl(path, params) {
+  const u = new URL(BASE + '/');
+  // path may already contain a ?query → split it back into the URL params.
+  let pathPart = path;
+  let queryPart = '';
+  const qi = path.indexOf('?');
+  if (qi >= 0) {
+    pathPart = path.slice(0, qi);
+    queryPart = path.slice(qi + 1);
+  }
+  u.searchParams.set('rest_route', pathPart);
+  if (queryPart) {
+    for (const [k, v] of new URLSearchParams(queryPart)) {
+      u.searchParams.set(k, v);
+    }
+  }
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      u.searchParams.set(k, String(v));
+    }
+  }
+  return u.toString();
+}
+
 async function wp(path, init = {}) {
-  const url = `${BASE}/wp-json${path}`;
+  const url = restUrl(path);
   const headers = { 'Authorization': auth, ...(init.headers || {}) };
   if (init.body && typeof init.body === 'object' && !(init.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
